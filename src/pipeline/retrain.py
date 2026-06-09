@@ -48,7 +48,8 @@ def _build_preprocessor() -> ColumnTransformer:
 
 
 def _load_current_config(artifacts_path: Path) -> dict:
-    raise NotImplementedError
+    with open(artifacts_path / "model_config.json") as f:
+        return json.load(f)
 
 
 def _save_artifacts(

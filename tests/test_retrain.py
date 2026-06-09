@@ -64,3 +64,11 @@ def artifacts_dir(tmp_path: Path) -> Path:
     (tmp_path / "mlp_weights.pt").write_bytes(b"placeholder")
     (tmp_path / "preprocessor.joblib").write_bytes(b"placeholder")
     return tmp_path
+
+
+@pytest.mark.unit
+def test_load_current_config_returns_dict_with_auc(artifacts_dir: Path) -> None:
+    config = _load_current_config(artifacts_dir)
+    assert config["auc_roc"] == 0.80
+    assert config["threshold"] == 0.35
+    assert config["hidden_dims"] == [128, 64, 32]
