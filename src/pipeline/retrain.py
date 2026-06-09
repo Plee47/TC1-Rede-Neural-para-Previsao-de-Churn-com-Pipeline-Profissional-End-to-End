@@ -44,7 +44,12 @@ CATEGORICAL_COLS = [
 
 
 def _build_preprocessor() -> ColumnTransformer:
-    raise NotImplementedError
+    return ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), NUMERIC_COLS),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), CATEGORICAL_COLS),
+        ]
+    )
 
 
 def _load_current_config(artifacts_path: Path) -> dict:
@@ -58,7 +63,10 @@ def _save_artifacts(
     preprocessor: ColumnTransformer,
     config: dict,
 ) -> None:
-    raise NotImplementedError
+    torch.save(model.state_dict(), artifacts_path / "mlp_weights.pt")
+    joblib.dump(preprocessor, artifacts_path / "preprocessor.joblib")
+    with open(artifacts_path / "model_config.json", "w") as f:
+        json.dump(config, f, indent=2)
 
 
 def run_retrain(

@@ -72,3 +72,38 @@ def test_load_current_config_returns_dict_with_auc(artifacts_dir: Path) -> None:
     assert config["auc_roc"] == 0.80
     assert config["threshold"] == 0.35
     assert config["hidden_dims"] == [128, 64, 32]
+
+
+@pytest.mark.unit
+def test_build_preprocessor_transforms_to_correct_shape() -> None:
+    from src.pipeline.retrain import _build_preprocessor, NUMERIC_COLS, CATEGORICAL_COLS
+    df = _make_df(50)
+    preprocessor = _build_preprocessor()
+    X = df[NUMERIC_COLS + CATEGORICAL_COLS]
+    X_t = preprocessor.fit_transform(X)
+    # 4 numeric + OHE categorical — deve ser >= 19 features
+    assert X_t.shape[0] == 50
+    assert X_t.shape[1] >= 19
+
+
+@pytest.mark.unit
+def test_save_artifacts_writes_all_three_files(artifacts_dir: Path) -> None:
+    from src.pipeline.retrain import _build_preprocessor, _save_artifacts, NUMERIC_COLS, CATEGORICAL_COLS
+    df = _make_df(50)
+    preprocessor = _build_preprocessor()
+    X = df[NUMERIC_COLS + CATEGORICAL_COLS]
+    preprocessor.fit(X)
+
+    model = MagicMock()
+    model.state_dict.return_value = {}
+
+    new_config = {"auc_roc": 0.85, "threshold": 0.35, "hidden_dims": [128, 64, 32],
+                  "dropout": 0.3, "input_dim": 46}
+
+    with patch("src.pipeline.retrain.torch.save") as mock_torch_save:
+        _save_artifacts(artifacts_dir, model, preprocessor, new_config)
+
+    mock_torch_save.assert_called_once()
+    assert (artifacts_dir / "preprocessor.joblib").exists()
+    saved_config = json.loads((artifacts_dir / "model_config.json").read_text())
+    assert saved_config["auc_roc"] == 0.85
