@@ -211,8 +211,7 @@ def test_run_retrain_logs_mlflow_run_in_both_outcomes(artifacts_dir: Path) -> No
             patch("src.pipeline.retrain.predict_proba", return_value=np.random.default_rng(3).random(30)),
             patch("src.pipeline.retrain.compute_metrics", return_value=metrics),
             patch("src.pipeline.retrain.mlflow", mock_mlflow),
-            patch("src.pipeline.retrain.torch.save"),
-            patch("src.pipeline.retrain.joblib.dump"),
+            patch("src.pipeline.retrain._save_artifacts"),
         ):
             run_retrain("fake/data.csv", artifacts_dir)
 
