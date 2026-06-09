@@ -1,0 +1,38 @@
+name: Monthly Retrain
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"   # dia 1 de cada mês, 06h UTC
+  workflow_dispatch:        # disparo manual via GitHub UI
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # necessário para commitar artefatos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[api,dev]"
+
+      - name: Run retraining
+        id: retrain
+        run: |
+          python -m src.pipeline.retrain
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Commit promoted artifacts
+        if: steps.retrain.outputs.exit_code == '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/artifacts/
+          git commit -m "chore: promote retrained model ($(date +'%Y-%m-%d'))"
+          git push
