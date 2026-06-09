@@ -218,3 +218,22 @@ def test_run_retrain_logs_mlflow_run_in_both_outcomes(artifacts_dir: Path) -> No
         mock_mlflow.set_experiment.assert_called_once()
         mock_mlflow.start_run.assert_called_once()
         mock_mlflow.set_tag.assert_called_with("promoted", expected_tag)
+
+
+@pytest.mark.slow
+def test_run_retrain_end_to_end_with_real_data(artifacts_dir: Path, raw_csv_path: Path) -> None:
+    """Pipeline completo sem mocks — usa CSV sintético do conftest.
+
+    Verifica apenas que a execução termina sem erro e que model_config.json
+    é um JSON válido ao final (independentemente de promoção ou rejeição).
+    """
+    with patch("src.pipeline.retrain.mlflow") as mock_mlflow:
+        mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+        exit_code = run_retrain(raw_csv_path, artifacts_dir, experiment_name="test-retrain")
+
+    assert exit_code in (0, 2)
+    final_config = json.loads((artifacts_dir / "model_config.json").read_text())
+    assert "auc_roc" in final_config
+    assert "threshold" in final_config
+    assert "hidden_dims" in final_config
