@@ -74,7 +74,76 @@ def run_retrain(
     artifacts_path: str | Path,
     experiment_name: str = "tc1-churn-retrain",
 ) -> int:
-    raise NotImplementedError
+    data_path = Path(data_path)
+    artifacts_path = Path(artifacts_path)
+
+    current_config = _load_current_config(artifacts_path)
+    current_auc = float(current_config["auc_roc"])
+    logger.info("AUC-ROC atual: %.4f", current_auc)
+
+    df = load_raw(data_path)
+    X = df[NUMERIC_COLS + CATEGORICAL_COLS]
+    y = df["Churn_bin"].values
+
+    X_trainval, X_test, y_trainval, y_test = train_test_split(
+        X, y, test_size=0.15, random_state=42, stratify=y
+    )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_trainval, y_trainval,
+        test_size=round(0.15 / 0.85, 4),
+        random_state=42,
+        stratify=y_trainval,
+    )
+
+    preprocessor = _build_preprocessor()
+    X_train_t = preprocessor.fit_transform(X_train).astype(np.float32)
+    X_val_t = preprocessor.transform(X_val).astype(np.float32)
+    X_test_t = preprocessor.transform(X_test).astype(np.float32)
+
+    hidden_dims: list[int] = current_config.get("hidden_dims", [128, 64, 32])
+    dropout = float(current_config.get("dropout", 0.3))
+    threshold = float(current_config.get("threshold", 0.35))
+    input_dim = X_train_t.shape[1]
+
+    pos_weight_val = float((y_train == 0).sum() / max((y_train == 1).sum(), 1))
+    model = ChurnMLP(input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout)
+
+    fit(
+        model, X_train_t, y_train, X_val_t, y_val,
+        epochs=100, batch_size=256, lr=1e-3, patience=10,
+        pos_weight=torch.tensor([pos_weight_val]),
+    )
+
+    y_prob = predict_proba(model, X_test_t, device="cpu")
+    new_metrics = compute_metrics(y_test, y_prob, threshold=threshold)
+    new_auc = float(new_metrics["auc_roc"])
+    logger.info("AUC-ROC novo: %.4f", new_auc)
+
+    promoted = new_auc > current_auc
+
+    mlflow.set_experiment(experiment_name)
+    with mlflow.start_run():
+        mlflow.log_params({
+            "input_dim": input_dim,
+            "hidden_dims": str(hidden_dims),
+            "dropout": dropout,
+            "threshold": threshold,
+        })
+        mlflow.log_metrics({k: float(v) for k, v in new_metrics.items()})
+        mlflow.set_tag("promoted", str(promoted).lower())
+
+    if promoted:
+        new_config = {
+            **current_config,
+            **{k: float(v) for k, v in new_metrics.items()},
+            "input_dim": input_dim,
+        }
+        _save_artifacts(artifacts_path, model, preprocessor, new_config)
+        logger.info("Modelo promovido (AUC %.4f > %.4f)", new_auc, current_auc)
+        return 0
+
+    logger.info("Modelo rejeitado (AUC %.4f <= %.4f)", new_auc, current_auc)
+    return 2
 
 
 def main() -> None:

@@ -107,3 +107,31 @@ def test_save_artifacts_writes_all_three_files(artifacts_dir: Path) -> None:
     assert (artifacts_dir / "preprocessor.joblib").exists()
     saved_config = json.loads((artifacts_dir / "model_config.json").read_text())
     assert saved_config["auc_roc"] == 0.85
+
+
+@pytest.mark.unit
+def test_run_retrain_promotes_when_new_model_is_better(artifacts_dir: Path) -> None:
+    """Exit 0 e artefatos atualizados quando AUC novo (0.90) > atual (0.80)."""
+    better_metrics = {
+        "auc_roc": 0.90, "pr_auc": 0.65, "f1": 0.60,
+        "precision": 0.55, "recall": 0.82,
+    }
+    mock_mlflow = MagicMock()
+    mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("src.pipeline.retrain.load_raw", return_value=_make_df(200)),
+        patch("src.pipeline.retrain.fit"),
+        patch("src.pipeline.retrain.predict_proba", return_value=np.random.default_rng(0).random(30)),
+        patch("src.pipeline.retrain.compute_metrics", return_value=better_metrics),
+        patch("src.pipeline.retrain.mlflow", mock_mlflow),
+        patch("src.pipeline.retrain.torch.save"),
+        patch("src.pipeline.retrain.joblib.dump"),
+    ):
+        exit_code = run_retrain("fake/data.csv", artifacts_dir)
+
+    assert exit_code == 0
+    saved_config = json.loads((artifacts_dir / "model_config.json").read_text())
+    assert saved_config["auc_roc"] == 0.90
+    mock_mlflow.set_tag.assert_called_with("promoted", "true")
