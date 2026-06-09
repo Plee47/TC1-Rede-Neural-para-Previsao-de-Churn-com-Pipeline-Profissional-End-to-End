@@ -25,10 +25,21 @@ logger = logging.getLogger(__name__)
 
 NUMERIC_COLS = ["tenure", "SeniorCitizen", "MonthlyCharges", "TotalCharges"]
 CATEGORICAL_COLS = [
-    "gender", "Partner", "Dependents", "PhoneService", "MultipleLines",
-    "InternetService", "OnlineSecurity", "OnlineBackup", "DeviceProtection",
-    "TechSupport", "StreamingTV", "StreamingMovies", "Contract",
-    "PaperlessBilling", "PaymentMethod",
+    "gender",
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "MultipleLines",
+    "InternetService",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "Contract",
+    "PaperlessBilling",
+    "PaymentMethod",
 ]
 
 
@@ -61,7 +72,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Re-treino mensal do modelo de churn")
     parser.add_argument(
         "--data-path",
-        default=os.getenv("RETRAIN_DATA_PATH", "data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv"),
+        default=os.getenv(
+            "RETRAIN_DATA_PATH",
+            "data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv",
+        ),
     )
     parser.add_argument(
         "--artifacts-path",
