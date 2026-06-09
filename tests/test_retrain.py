@@ -135,3 +135,87 @@ def test_run_retrain_promotes_when_new_model_is_better(artifacts_dir: Path) -> N
     saved_config = json.loads((artifacts_dir / "model_config.json").read_text())
     assert saved_config["auc_roc"] == 0.90
     mock_mlflow.set_tag.assert_called_with("promoted", "true")
+
+
+@pytest.mark.unit
+def test_run_retrain_rejects_when_new_model_is_worse(artifacts_dir: Path) -> None:
+    """Exit 2 e artefatos inalterados quando AUC novo (0.70) < atual (0.80)."""
+    worse_metrics = {
+        "auc_roc": 0.70, "pr_auc": 0.50, "f1": 0.48,
+        "precision": 0.45, "recall": 0.60,
+    }
+    original_config_bytes = (artifacts_dir / "model_config.json").read_bytes()
+
+    mock_mlflow = MagicMock()
+    mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("src.pipeline.retrain.load_raw", return_value=_make_df(200)),
+        patch("src.pipeline.retrain.fit"),
+        patch("src.pipeline.retrain.predict_proba", return_value=np.random.default_rng(1).random(30)),
+        patch("src.pipeline.retrain.compute_metrics", return_value=worse_metrics),
+        patch("src.pipeline.retrain.mlflow", mock_mlflow),
+        patch("src.pipeline.retrain.torch.save") as mock_torch_save,
+        patch("src.pipeline.retrain.joblib.dump") as mock_joblib_dump,
+    ):
+        exit_code = run_retrain("fake/data.csv", artifacts_dir)
+
+    assert exit_code == 2
+    mock_torch_save.assert_not_called()
+    mock_joblib_dump.assert_not_called()
+    assert (artifacts_dir / "model_config.json").read_bytes() == original_config_bytes
+    mock_mlflow.set_tag.assert_called_with("promoted", "false")
+
+
+@pytest.mark.unit
+def test_run_retrain_preserves_threshold_when_rejected(artifacts_dir: Path) -> None:
+    """Threshold do config atual é mantido quando modelo é rejeitado."""
+    worse_metrics = {
+        "auc_roc": 0.70, "pr_auc": 0.50, "f1": 0.48,
+        "precision": 0.45, "recall": 0.60,
+    }
+    mock_mlflow = MagicMock()
+    mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=MagicMock())
+    mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("src.pipeline.retrain.load_raw", return_value=_make_df(200)),
+        patch("src.pipeline.retrain.fit"),
+        patch("src.pipeline.retrain.predict_proba", return_value=np.random.default_rng(2).random(30)),
+        patch("src.pipeline.retrain.compute_metrics", return_value=worse_metrics),
+        patch("src.pipeline.retrain.mlflow", mock_mlflow),
+        patch("src.pipeline.retrain.torch.save"),
+        patch("src.pipeline.retrain.joblib.dump"),
+    ):
+        run_retrain("fake/data.csv", artifacts_dir)
+
+    remaining_config = json.loads((artifacts_dir / "model_config.json").read_text())
+    assert remaining_config["threshold"] == 0.35
+
+
+@pytest.mark.unit
+def test_run_retrain_logs_mlflow_run_in_both_outcomes(artifacts_dir: Path) -> None:
+    """MLflow deve ser chamado independentemente de promoção ou rejeição."""
+    for metrics, expected_tag in [
+        ({"auc_roc": 0.90, "pr_auc": 0.65, "f1": 0.60, "precision": 0.55, "recall": 0.82}, "true"),
+        ({"auc_roc": 0.70, "pr_auc": 0.50, "f1": 0.48, "precision": 0.45, "recall": 0.60}, "false"),
+    ]:
+        mock_mlflow = MagicMock()
+        mock_mlflow.start_run.return_value.__enter__ = MagicMock(return_value=MagicMock())
+        mock_mlflow.start_run.return_value.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("src.pipeline.retrain.load_raw", return_value=_make_df(200)),
+            patch("src.pipeline.retrain.fit"),
+            patch("src.pipeline.retrain.predict_proba", return_value=np.random.default_rng(3).random(30)),
+            patch("src.pipeline.retrain.compute_metrics", return_value=metrics),
+            patch("src.pipeline.retrain.mlflow", mock_mlflow),
+            patch("src.pipeline.retrain.torch.save"),
+            patch("src.pipeline.retrain.joblib.dump"),
+        ):
+            run_retrain("fake/data.csv", artifacts_dir)
+
+        mock_mlflow.set_experiment.assert_called_once()
+        mock_mlflow.start_run.assert_called_once()
+        mock_mlflow.set_tag.assert_called_with("promoted", expected_tag)
