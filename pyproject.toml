@@ -123,6 +123,7 @@ select = [
 ignore = [
     "E501",  # linha longa (ruff format já cuida)
     "B008",  # chamada de função em defaults (FastAPI patterns)
+    "N806",  # variável em função deve ser minúscula — convenção ML usa X maiúsculo para feature matrices
 ]
 
 [tool.ruff.lint.isort]

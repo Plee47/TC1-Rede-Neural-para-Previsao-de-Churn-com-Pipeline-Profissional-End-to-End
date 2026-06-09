@@ -4,16 +4,16 @@ import argparse
 import json
 import logging
 import os
-import sys
 from pathlib import Path
+import sys
 
 import joblib
 import mlflow
 import numpy as np
-import torch
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import torch
 
 from src.data.loader import load_raw
 from src.evaluation.metrics import compute_metrics
@@ -47,7 +47,11 @@ def _build_preprocessor() -> ColumnTransformer:
     return ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), NUMERIC_COLS),
-            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), CATEGORICAL_COLS),
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                CATEGORICAL_COLS,
+            ),
         ]
     )
 
@@ -89,7 +93,8 @@ def run_retrain(
         X, y, test_size=0.15, random_state=42, stratify=y
     )
     X_train, X_val, y_train, y_val = train_test_split(
-        X_trainval, y_trainval,
+        X_trainval,
+        y_trainval,
         test_size=round(0.15 / 0.85, 4),
         random_state=42,
         stratify=y_trainval,
@@ -109,8 +114,15 @@ def run_retrain(
     model = ChurnMLP(input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout)
 
     fit(
-        model, X_train_t, y_train, X_val_t, y_val,
-        epochs=100, batch_size=256, lr=1e-3, patience=10,
+        model,
+        X_train_t,
+        y_train,
+        X_val_t,
+        y_val,
+        epochs=100,
+        batch_size=256,
+        lr=1e-3,
+        patience=10,
         pos_weight=torch.tensor([pos_weight_val]),
     )
 
@@ -123,12 +135,14 @@ def run_retrain(
 
     mlflow.set_experiment(experiment_name)
     with mlflow.start_run():
-        mlflow.log_params({
-            "input_dim": input_dim,
-            "hidden_dims": str(hidden_dims),
-            "dropout": dropout,
-            "threshold": threshold,
-        })
+        mlflow.log_params(
+            {
+                "input_dim": input_dim,
+                "hidden_dims": str(hidden_dims),
+                "dropout": dropout,
+                "threshold": threshold,
+            }
+        )
         mlflow.log_metrics({k: float(v) for k, v in new_metrics.items()})
         mlflow.set_tag("promoted", str(promoted).lower())
 
