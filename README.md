@@ -64,14 +64,17 @@ Identificar clientes propensos ao cancelamento (churn) antes que ele ocorra, per
 │   │   └── train.py                # fit(), predict_proba(), EarlyStopping
 │   ├── evaluation/
 │   │   └── metrics.py              # compute_metrics(): AUC-ROC, PR-AUC, F1, Recall
-│   └── api/
-│       └── app.py                  # FastAPI: GET /health, GET /model-info, POST /predict
+│   ├── api/
+│   │   └── app.py                  # FastAPI: GET /health, GET /model-info, POST /predict
+│   └── pipeline/
+│       └── retrain.py              # Re-treino agendado com substituição condicional por AUC-ROC
 ├── tests/
 │   ├── conftest.py                 # Fixtures compartilhadas (CSV sintético)
 │   ├── test_smoke.py               # Smoke tests — imports e execução básica
 │   ├── test_schema.py              # Schema tests — contratos de dados
 │   ├── test_models.py              # Unit tests — ChurnMLP, EarlyStopping, fit()
-│   └── test_api.py                 # API tests — endpoints, validação Pydantic, mock de modelo
+│   ├── test_api.py                 # API tests — endpoints, validação Pydantic, mock de modelo
+│   └── test_retrain.py             # Unit + slow tests — pipeline de re-treino
 ├── docs/
 │   ├── ml_canvas.md                # ML Canvas com SLOs e análise de risco
 │   ├── model_card.md               # Model Card completo (arquitetura, métricas, limitações, monitoramento)
@@ -82,7 +85,15 @@ Identificar clientes propensos ao cancelamento (churn) antes que ele ocorra, per
 │       ├── preprocessor.joblib     # Pipeline sklearn (StandardScaler + OHE)
 │       ├── mlp_weights.pt          # Pesos do melhor checkpoint PyTorch
 │       └── model_config.json       # Metadados: arquitetura, threshold, métricas
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                  # CI: lint → testes → docker build (push para main/staging)
+│       └── retrain.yml             # Re-treino mensal agendado (cron dia 1, 06h UTC)
 ├── mlruns/                         # Experimentos MLflow (local)
+├── Dockerfile                      # Build multi-stage para a API de inferência
+├── docker-compose.yml              # Stack local: API (:8000) + MLflow UI (:5000)
+├── Makefile                        # Targets: install, lint, format, test, api, docker-build, docker-up
+├── .env.example                    # Variáveis de ambiente documentadas
 ├── pyproject.toml                  # Dependências, pytest, ruff, mypy
 ├── .gitignore                      # Ignora dados, modelos, venv, cache
 └── .pre-commit-config.yaml         # Hooks: ruff lint+format, trailing whitespace, etc.
@@ -373,17 +384,69 @@ O threshold ótimo é calculado automaticamente no `03_mlp.ipynb` para minimizar
 
 ---
 
+## Re-treino Automatizado
+
+O pipeline de re-treino roda mensalmente via GitHub Actions e substitui os artefatos em produção **apenas se o novo modelo superar o atual em AUC-ROC**.
+
+### Execução manual
+
+```bash
+# uso padrão (lê variáveis de ambiente ou defaults)
+python -m src.pipeline.retrain
+
+# com caminhos explícitos
+python -m src.pipeline.retrain \
+  --data-path data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv \
+  --artifacts-path models/artifacts \
+  --experiment-name tc1-churn-retrain
+```
+
+**Exit codes:**
+- `0` — modelo **promovido** (artefatos atualizados, run logada no MLflow com `promoted=true`)
+- `2` — modelo **rejeitado** (artefatos mantidos, run logada com `promoted=false`)
+- `1` — erro inesperado
+
+### Fluxo interno
+
+```
+load_raw() → train/test split (80/20 estratificado)
+    ↓
+ColumnTransformer fit_transform → 46 features
+    ↓
+ChurnMLP.fit() com EarlyStopping → avalia AUC-ROC no test set
+    ↓
+AUC-ROC novo > AUC-ROC atual (de model_config.json)?
+    ├── SIM (exit 0) → salva artefatos + loga MLflow run (promoted=true)
+    └── NÃO (exit 2) → mantém artefatos + loga MLflow run (promoted=false)
+```
+
+### Agendamento (GitHub Actions)
+
+O workflow `.github/workflows/retrain.yml` roda todo dia 1 do mês às 06h UTC. Se o modelo for promovido (exit 0), os novos artefatos são commitados automaticamente no repositório. O disparo manual também está disponível via `workflow_dispatch` na aba Actions do GitHub.
+
+### Variáveis de ambiente
+
+Copie `.env.example` para `.env` e ajuste conforme necessário:
+
+```
+RETRAIN_DATA_PATH=data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv
+RETRAIN_ARTIFACTS_PATH=models/artifacts
+MLFLOW_TRACKING_URI=mlruns
+```
+
+---
+
 ## Testes Automatizados
 
 ```bash
-# Rodar todos os testes com cobertura
-python -m pytest tests/ -v
+# Rodar testes rápidos (sem treino real)
+make test
 
-# Rodar apenas testes rápidos (sem o slow test de treino)
-python -m pytest tests/ -v -m "not slow"
+# Rodar todos os testes incluindo @slow (treino real)
+make test-all
 ```
 
-**Suite atual: 29 testes | Cobertura: 92%**
+**Suite atual: 33 testes | Cobertura: ≥ 85%**
 
 | Arquivo | Testes | O que cobre |
 |---|---|---|
@@ -391,21 +454,22 @@ python -m pytest tests/ -v -m "not slow"
 | `test_schema.py` | 8 | Colunas, tipos e invariantes de dados |
 | `test_models.py` | 7 | ChurnMLP forward, EarlyStopping, fit(), predict_proba() |
 | `test_api.py` | 9 | Endpoints /health, /model-info e /predict; validação Pydantic; mock de modelo |
+| `test_retrain.py` | 4+1 | Promoção/rejeição condicional, logging MLflow, preservação de threshold; end-to-end @slow |
 
-Os testes da API usam um modelo sintético injetado no estado da aplicação — não é necessário ter os artefatos treinados para rodá-los.
+Os testes da API e de re-treino (@unit) usam mocks — não é necessário ter os artefatos treinados para rodá-los.
 
 ---
 
 ## Qualidade de Código
 
 ```bash
-# Lint + verificação de formatação
+# Via Makefile (recomendado)
+make lint      # ruff check src/ tests/
+make format    # ruff format src/ tests/
+
+# Ou diretamente
 ruff check src/ tests/
-
-# Formatar automaticamente
 ruff format src/ tests/
-
-# Verificação de tipos
 mypy src/
 ```
 
@@ -446,18 +510,37 @@ Configuração completa em [pyproject.toml](pyproject.toml).
 A API de inferência está **totalmente funcional** localmente. Execute o pipeline completo (notebooks 01→03) para gerar os artefatos e então suba a API:
 
 ```bash
+# via Make
+make api
+
+# ou diretamente
 uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+```
+
+Para subir a stack completa (API + MLflow UI) com Docker:
+
+```bash
+make docker-up
+# API:    http://localhost:8000/docs
+# MLflow: http://localhost:5000
 ```
 
 **SLOs de produção:**
 - Latência ≤ 500 ms (p95)
 - Disponibilidade ≥ 99.5%
-- Retreinamento a cada 90 dias ou se AUC-ROC cair ≥ 3 p.p.
+- Retreinamento mensal automático (substituição condicional por AUC-ROC)
 
-### Próximos passos (Etapa 3)
+### Fase 3 — Roadmap
 
-- **Docker** — containerização da aplicação com Dockerfile
-- **Cloud** — deploy em serviço gerenciado (AWS/GCP/Azure) com URL pública
+| Item | Status |
+|------|--------|
+| Dockerfile (API multi-stage) | ✅ Concluído |
+| docker-compose (API + MLflow) | ✅ Concluído |
+| GitHub Actions CI (lint + test + build) | ✅ Concluído |
+| Re-treino automatizado mensal | 🔜 A implementar |
+| Monitoramento de data drift | 🔜 A implementar |
+| Dashboard de métricas em produção | 🔜 A implementar |
+| Deploy em cloud (AWS/GCP/Azure) | 🔜 A implementar |
 
 ---
 
