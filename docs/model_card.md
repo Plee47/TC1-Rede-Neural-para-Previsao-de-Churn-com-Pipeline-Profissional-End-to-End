@@ -147,18 +147,171 @@ Cálculo completo disponível em `notebooks/03_mlp.ipynb` (Seção 5) e `docs/an
 
 ## Plano de Monitoramento
 
-| Evento | Ação |
-|---|---|
-| AUC-ROC em produção cai ≥ 3 pp | Retreinar com dados mais recentes |
-| Distribuição de features desvia > 2σ | Alertar equipe de ML (data drift) |
-| Recall < 0.65 | Revisão imediata do threshold |
-| A cada 90 dias | Retreino preventivo com novos dados |
+Este plano descreve como detectar degradação do modelo ChurnMLP em produção, quais alertas devem ser disparados e o passo-a-passo de resposta para cada cenário. O ciclo de monitoramento é **mensal**, alinhado com o re-treino automatizado (`.github/workflows/retrain.yml`).
 
-**Métricas a monitorar em produção:**
-- AUC-ROC e Recall no conjunto de avaliação mensal
-- Distribuição de `churn_probability` (deve ser estável)
-- Taxa de churn observada vs. predita (calibração)
-- Tempo de inferência por requisição (latência p50/p95/p99)
+---
+
+### 4.1 Métricas de Monitoramento
+
+#### 4.1.1 Métricas de Performance do Modelo
+
+Avaliadas mensalmente em um conjunto de avaliação rotulado ("golden set") coletado nos 30 dias anteriores.
+
+| Métrica | Baseline (treino) | Alerta Amarelo | Alerta Vermelho |
+|---|---|---|---|
+| **AUC-ROC** | 0.8456 | < 0.82 (−2,5 pp) | < 0.79 (−5,5 pp) |
+| **Recall** | 0.8321 | < 0.75 (−8 pp) | < 0.65 (−18 pp) |
+| **PR-AUC** | 0.6447 | < 0.60 (−4,5 pp) | < 0.55 (−9,5 pp) |
+| **F1-Score** | 0.6148 | < 0.57 (−4,5 pp) | < 0.52 (−9,5 pp) |
+
+> **Justificativa dos limiares:** degradação de 2–5 pp indica drift incipiente e requer observação; degradação ≥ 5 pp indica falha sistêmica e exige intervenção imediata. Recall recebe limiar mais conservador pois o custo de Falso Negativo é ~30× maior que o de Falso Positivo (FN = $300 vs. FP = $10).
+
+#### 4.1.2 Métricas de Data Drift (Drift de Covariáveis)
+
+Monitoram mudanças na distribuição das features de entrada, comparando a distribuição mensal atual contra a distribuição de treinamento (referência).
+
+**Features numéricas** — Population Stability Index (PSI):
+
+| Feature | Alerta | Interpretação |
+|---|---|---|
+| `tenure` | PSI > 0.10 (moderado) | Mudança no tempo médio de contrato da base |
+| `MonthlyCharges` | PSI > 0.10 | Possível reajuste de preços ou mudança de plano |
+| `TotalCharges` | PSI > 0.25 (severo) | Correlaciona com tenure — avaliar em conjunto |
+| `SeniorCitizen` | Δ proporção > 5 pp | Mudança demográfica na amostra |
+
+> **Interpretação PSI:** 0–0.10 = estável; 0.10–0.25 = mudança moderada (monitorar); > 0.25 = mudança severa (acionar retreino).
+
+**Features categóricas** — diferença de frequência por categoria (ou teste qui-quadrado):
+
+| Feature | Alerta | Interpretação |
+|---|---|---|
+| `Contract` | Δ > 10 pp em qualquer categoria | Mudança no perfil contratual da base |
+| `InternetService` | Δ > 10 pp | Mudança no mix de produtos ofertados |
+| `PaymentMethod` | Δ > 10 pp | Mudança no comportamento de pagamento |
+| `Churn` (target real) | Δ taxa real vs. prevista > 5 pp | Calibração do modelo degradou |
+
+#### 4.1.3 Métricas de Output Drift (Drift de Predições)
+
+Monitoram mudanças na distribuição das probabilidades de saída, independente do label real.
+
+| Métrica | Referência | Alerta |
+|---|---|---|
+| Média de `churn_probability` | ~0.27 (taxa de churn do treino) | Δ > 5 pp |
+| Percentil 90 de `churn_probability` | Estável | Δ > 8 pp vs. referência |
+| Taxa de predições positivas (score > threshold) | ~26,5% | Δ > 8 pp vs. taxa histórica |
+| Kolmogorov-Smirnov (mensal vs. referência) | p-value > 0.05 (estável) | p-value < 0.05 |
+
+#### 4.1.4 Métricas Operacionais (SLO da API)
+
+| Métrica | Meta (SLO) | Alerta |
+|---|---|---|
+| Latência p50 | ≤ 100 ms | > 200 ms |
+| Latência p95 | ≤ 500 ms | > 800 ms |
+| Latência p99 | ≤ 1.000 ms | > 2.000 ms |
+| Taxa de erro HTTP 5xx | ≤ 0,1% | > 1% |
+| Disponibilidade | ≥ 99,5% | < 99% |
+
+---
+
+### 4.2 Alertas e Severidade
+
+| Severidade | Critério | Prazo de Resposta |
+|---|---|---|
+| **P0 — Crítico** | AUC-ROC < 0.79 **ou** Recall < 0.65 **ou** API indisponível (disponibilidade < 99%) | 4 horas |
+| **P1 — Alto** | AUC-ROC < 0.82 **ou** Recall < 0.75 **ou** PSI > 0.25 em feature numérica principal | 24 horas |
+| **P2 — Médio** | PR-AUC < 0.60 **ou** PSI 0.10–0.25 **ou** taxa de churn real vs. prevista Δ > 5 pp | 72 horas |
+| **P3 — Baixo** | Latência p95 > 500 ms **ou** KS p-value < 0.05 (output drift moderado) | Próximo ciclo mensal |
+
+**Canais de alerta sugeridos:**
+- P0/P1: notificação imediata via e-mail + Slack para a equipe de ML
+- P2: ticket criado no sistema de gestão de incidentes
+- P3: registrado no relatório mensal de monitoramento
+
+---
+
+### 4.3 Playbook de Resposta a Incidentes
+
+#### Cenário A — Degradação de Performance sem Data Drift
+
+**Sintomas:** AUC-ROC ou Recall caiu além do limiar, mas distribuições de features estão estáveis (PSI < 0.10).
+
+**Causa provável:** Concept drift — o relacionamento entre features e target mudou (ex.: novos fatores de churn não capturados pelo modelo).
+
+**Passos:**
+
+1. Confirmar que os dados de avaliação mensal são representativos (verificar ausência de bug de coleta — contagem de registros, proporção de classes)
+2. Verificar no MLflow o histórico de runs de `tc1-churn-retrain` para identificar tendência de queda nas últimas execuções
+3. Executar re-treino imediato: `python -m src.pipeline.retrain --experiment-name tc1-churn-emergency`
+4. Se o novo modelo não melhorar (exit code 2), escalar para revisão manual de features — podem ser necessárias novas variáveis preditoras (ex.: dados de suporte, NPS)
+5. Documentar a ocorrência no MLflow (campo `notes` da run) com data, métricas observadas e ação tomada
+
+#### Cenário B — Data Drift com Degradação de Performance
+
+**Sintomas:** PSI > 0.25 ou qui-quadrado significativo **E** queda de performance simultânea.
+
+**Causa provável:** A distribuição da população de clientes mudou de forma que o modelo não generaliza bem para o novo perfil (ex.: campanha de captação, sazonalidade, mudança de produto).
+
+**Passos:**
+
+1. Identificar quais features sofreram drift pelo relatório PSI/qui-quadrado mensal
+2. Verificar se a mudança é real ou é artefato de bug no pipeline de dados (validar contagem de registros, ausência de valores nulos incomuns, datas de corte corretas)
+3. **Se for bug de pipeline:** corrigir a ingestão e re-executar a avaliação com dados limpos
+4. **Se for mudança real na população:**
+   - Coletar dados representativos do novo perfil de clientes
+   - Executar re-treino: `python -m src.pipeline.retrain`
+   - Se o dataset original não captura o novo perfil, considerar substituição parcial do conjunto de treino com dados mais recentes
+5. Monitorar métricas na semana seguinte ao re-treino para confirmar recuperação
+6. Atualizar os valores de referência (baseline) neste plano se a mudança for permanente
+
+#### Cenário C — Data Drift sem Degradação de Performance
+
+**Sintomas:** PSI > 0.10 em features de entrada, mas métricas de performance estão dentro do SLO.
+
+**Causa provável:** Mudança no perfil da base que o modelo já generaliza bem — não é emergencial.
+
+**Passos:**
+
+1. Registrar o drift observado no relatório mensal
+2. Marcar como observação no MLflow para rastreabilidade histórica
+3. Incluir no próximo ciclo de re-treino agendado (`.github/workflows/retrain.yml` já cobre isso automaticamente)
+4. Se o drift persistir por 2+ meses consecutivos, reavaliar se o baseline de referência deve ser atualizado
+
+#### Cenário D — Degradação Operacional (API)
+
+**Sintomas:** Latência p95 > 800 ms ou taxa de erro HTTP 5xx > 1%.
+
+**Passos:**
+
+1. Verificar logs do container: `docker logs tc1-churn-api`
+2. Confirmar que o modelo carregou corretamente: `curl http://localhost:8000/health` deve retornar `{"status": "ok"}`
+3. **Se o modelo não carregou:** reiniciar o container e verificar integridade de `models/artifacts/mlp_weights.pt`
+4. **Se a latência é alta mas funcional:** verificar uso de CPU/memória do container; considerar escalonamento horizontal se a causa for volume de requisições
+5. Escalara para equipe de infraestrutura se os passos anteriores não resolverem
+
+#### Cenário E — Re-treino Automático Mensal (Fluxo Normal)
+
+**Este é o fluxo esperado — não é incidente.**
+
+O workflow `.github/workflows/retrain.yml` executa no dia 1 de cada mês às 06h UTC:
+
+1. `retrain.py` treina novo modelo e compara AUC-ROC com `model_config.json` atual
+2. **Exit 0 (promovido):** novo AUC-ROC > AUC-ROC atual → artefatos atualizados automaticamente, commit com mensagem `chore: promote retrained model (YYYY-MM-DD)`, run no MLflow com tag `promoted=true`
+3. **Exit 2 (rejeitado):** novo AUC-ROC ≤ atual → artefatos mantidos, run no MLflow com tag `promoted=false`
+4. Em ambos os casos: verificar o log da GitHub Action para confirmar execução sem erros
+5. Após promoção: comparar métricas do novo modelo vs. anterior no MLflow (`make mlflow`)
+
+---
+
+### 4.4 Frequência e Responsabilidades
+
+| Atividade | Frequência | Responsável |
+|---|---|---|
+| Re-treino automatizado | Mensal (dia 1, 06h UTC) | GitHub Actions (automático) |
+| Revisão de métricas de performance | Mensal | Equipe de ML |
+| Cálculo de PSI e drift de features | Mensal | Equipe de ML |
+| Revisão de SLOs operacionais | Semanal | Equipe de DevOps/ML |
+| Atualização deste plano de monitoramento | Trimestral ou após incidente | Responsável pelo modelo |
+| Auditoria completa (fairness, viés) | Semestral | Equipe de ML + Negócio |
 
 ---
 
