@@ -4,7 +4,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.12-orange)
 ![MLflow](https://img.shields.io/badge/MLflow-3.13-green)
 ![scikit--learn](https://img.shields.io/badge/scikit--learn-1.9-blue)
-![Tests](https://img.shields.io/badge/testes-29%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/testes-37%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -238,10 +238,15 @@ O que está registrado em cada experimento:
 
 ## Rodar a API de Inferência
 
-> **Pré-requisito:** os artefatos devem existir em `models/artifacts/`. Execute o `03_mlp.ipynb` primeiro.
+> **Pré-requisito:** os artefatos devem existir em `models/artifacts/`. Gere-os com o script de export (reproduz o treino do `03_mlp.ipynb`, sem abrir o Jupyter):
+>
+> ```bash
+> python -m src.models.export_artifacts
+> ```
+> Saída: `preprocessor.joblib`, `mlp_weights.pt` e `model_config.json` em `models/artifacts/`.
 
 ```bash
-uvicorn src.api.app:app --reload
+uvicorn src.api.app:app --reload     # dev (hot-reload)
 ```
 
 Acesse: **http://localhost:8000/docs** (Swagger UI automático)
@@ -250,9 +255,11 @@ Acesse: **http://localhost:8000/docs** (Swagger UI automático)
 
 | Método | Rota | Descrição |
 |---|---|---|
+| `GET` | `/` | Página de demonstração visual (formulário que consome a API) |
 | `GET` | `/health` | Status da API |
 | `GET` | `/model-info` | Metadados do modelo carregado (arquitetura, threshold) |
-| `POST` | `/predict` | Retorna `churn_probability` e `churn_prediction` |
+| `POST` | `/predict` | Score de 1 cliente: `churn_probability`, `churn_prediction`, `risk_band` |
+| `POST` | `/predict/batch` | Score de uma lista de clientes — uso do time de CRM |
 
 **Exemplo de chamada (cliente de alto risco):**
 
@@ -286,9 +293,10 @@ curl -X POST http://localhost:8000/predict \
 
 ```json
 {
-  "churn_probability": 0.847312,
+  "churn_probability": 0.918272,
   "churn_prediction": 1,
-  "threshold": 0.35
+  "risk_band": "Alto",
+  "threshold": 0.05
 }
 ```
 
@@ -383,14 +391,15 @@ python -m pytest tests/ -v
 python -m pytest tests/ -v -m "not slow"
 ```
 
-**Suite atual: 29 testes | Cobertura: 92%**
+**Suite atual: 37 testes | Cobertura: ~96% (código servido)**
 
 | Arquivo | Testes | O que cobre |
 |---|---|---|
 | `test_smoke.py` | 5 | Imports e execução básica dos módulos |
 | `test_schema.py` | 8 | Colunas, tipos e invariantes de dados |
 | `test_models.py` | 7 | ChurnMLP forward, EarlyStopping, fit(), predict_proba() |
-| `test_api.py` | 9 | Endpoints /health, /model-info e /predict; validação Pydantic; mock de modelo |
+| `test_api.py` | 14 | Endpoints /, /health, /model-info, /predict, /predict/batch; validação Pydantic; mock de modelo |
+| `test_artifacts_integration.py` | 3 | API com artefatos REAIS: lifespan, /predict e sanidade (alto > baixo risco). Pulados se não houver modelo |
 
 Os testes da API usam um modelo sintético injetado no estado da aplicação — não é necessário ter os artefatos treinados para rodá-los.
 
@@ -417,6 +426,7 @@ Configuração completa em [pyproject.toml](pyproject.toml).
 
 | Documento | Descrição |
 |---|---|
+| [docs/arquitetura.md](docs/arquitetura.md) | **Comece por aqui** — visão do sistema: treino × execução, jornada da requisição, mapa do repo, como rodar/deployar, decisões |
 | [docs/ml_canvas.md](docs/ml_canvas.md) | ML Canvas: formulação do problema, SLOs, análise de custo, stakeholders |
 | [docs/model_card.md](docs/model_card.md) | Model Card: arquitetura, performance, limitações, plano de monitoramento, ética |
 | [docs/comparacao_modelos.png](docs/comparacao_modelos.png) | Gráfico comparativo de modelos (gerado automaticamente) |
@@ -454,10 +464,42 @@ uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 - Disponibilidade ≥ 99.5%
 - Retreinamento a cada 90 dias ou se AUC-ROC cair ≥ 3 p.p.
 
-### Próximos passos (Etapa 3)
+### Docker
 
-- **Docker** — containerização da aplicação com Dockerfile
-- **Cloud** — deploy em serviço gerenciado (AWS/GCP/Azure) com URL pública
+Imagem de produção enxuta (torch CPU-only), usuário não-root, honra `$PORT`:
+
+```bash
+# 1. Gere os artefatos (se ainda não existirem)
+python -m src.models.export_artifacts
+
+# 2. Build + run
+docker build -t churn-api .
+docker run -p 8000:8000 churn-api      # Swagger em http://localhost:8000/docs
+```
+
+> O build copia os artefatos de `models/artifacts/` (versionados, ~84 KB) — assim o build é reproduzível em qualquer host sem registry. Para um fluxo MLOps estrito, troque por um artifact store / registry.
+
+### Cloud (Render)
+
+O repositório inclui um [`render.yaml`](render.yaml) que builda o `Dockerfile` com healthcheck em `/health`:
+
+1. Push do branch para o GitHub.
+2. No [Render](https://render.com): **New → Blueprint** apontando para o repositório.
+3. A URL pública fica em `https://<seu-serviço>.onrender.com/docs`.
+
+O mesmo `Dockerfile` roda em Railway, Fly.io ou Google Cloud Run — todos injetam `$PORT`, respeitado pela aplicação.
+
+### Retreino automatizado (GitHub Actions)
+
+O workflow [`retrain.yml`](.github/workflows/retrain.yml) implementa a política de retreino do canvas (a cada ~90 dias, ou manualmente pela aba **Actions → retreinar-modelo → Run workflow**):
+
+```
+baixa dataset → treina → portão de qualidade (SLOs) → smoke test → PR com artefatos novos → merge → redeploy
+```
+
+Modelo novo **nunca** entra em produção sem passar pelos gates (AUC-ROC ≥ 0.78, PR-AUC ≥ 0.60, Recall ≥ 0.70 — `scripts/quality_gate.py`) e pela revisão do PR. Detalhes em [docs/arquitetura.md](docs/arquitetura.md).
+
+> Configuração única no GitHub: Settings → Actions → General → habilitar *"Allow GitHub Actions to create and approve pull requests"*.
 
 ---
 

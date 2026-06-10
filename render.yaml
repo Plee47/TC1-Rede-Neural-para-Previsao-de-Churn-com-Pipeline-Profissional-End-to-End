@@ -1,0 +1,12 @@
+# Render Blueprint — deploy da Churn Prediction API via Docker.
+# No Render: New → Blueprint → aponte para este repositório.
+# O Dockerfile já honra a porta injetada em $PORT.
+services:
+  - type: web
+    name: churn-prediction-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true

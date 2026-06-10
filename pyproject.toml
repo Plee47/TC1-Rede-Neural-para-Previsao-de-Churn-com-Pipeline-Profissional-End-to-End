@@ -149,7 +149,7 @@ exclude = ["notebooks/", "tests/"]
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/tests/*", "*/__init__.py"]
+omit = ["*/tests/*", "*/__init__.py", "*/export_artifacts.py"]
 
 [tool.coverage.report]
 exclude_lines = [

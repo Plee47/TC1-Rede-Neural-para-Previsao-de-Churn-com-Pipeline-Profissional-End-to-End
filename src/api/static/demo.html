@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Churn Prediction — Demo</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --line:#334155; --text:#e2e8f0;
+    --muted:#94a3b8; --accent:#38bdf8; --alto:#f87171; --medio:#fbbf24; --baixo:#4ade80;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 60px}
+  header h1{margin:0;font-size:26px}
+  header p{margin:6px 0 0;color:var(--muted)}
+  .presets{display:flex;gap:10px;margin:22px 0 14px;flex-wrap:wrap}
+  .presets button{background:var(--card);border:1px solid var(--line);color:var(--text);
+    padding:9px 14px;border-radius:8px;cursor:pointer;font-size:14px}
+  .presets button:hover{border-color:var(--accent)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .field input,.field select{width:100%;background:var(--bg);border:1px solid var(--line);
+    color:var(--text);padding:8px 10px;border-radius:7px;font-size:14px}
+  .actions{margin:18px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  #btn-prever{background:var(--accent);color:#082f49;font-weight:700;border:none;
+    padding:12px 26px;border-radius:9px;font-size:15px;cursor:pointer}
+  #btn-prever:disabled{opacity:.6;cursor:wait}
+  .hint{color:var(--muted);font-size:13px}
+  #resultado{display:none;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:22px;margin-top:8px}
+  .res-top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  #prob{font-size:44px;font-weight:800}
+  #band{font-size:14px;font-weight:700;padding:4px 12px;border-radius:999px;color:#0f172a}
+  .bar{height:12px;background:var(--bg);border-radius:999px;margin:16px 0 6px;
+    position:relative;overflow:hidden;border:1px solid var(--line)}
+  .bar-fill{height:100%;width:0;border-radius:999px;transition:width .5s}
+  .thr{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--muted)}
+  #veredito{margin-top:10px;font-size:15px}
+  #detalhe{color:var(--muted);font-size:13px;margin-top:4px}
+  #erro{display:none;margin-top:14px;color:var(--alto);font-size:14px;white-space:pre-wrap}
+  footer{margin-top:26px;color:var(--muted);font-size:13px}
+  footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Previsão de Churn — Demonstração</h1>
+    <p>Esta página consome a própria API (<code>POST /predict</code>). Preencha o perfil do cliente ou use um exemplo pronto.</p>
+  </header>
+
+  <div class="presets">
+    <button type="button" onclick="aplicarPreset('alto')">⚡ Exemplo: cliente de alto risco</button>
+    <button type="button" onclick="aplicarPreset('baixo')">🛡️ Exemplo: cliente fiel</button>
+  </div>
+
+  <form id="form" class="grid"></form>
+
+  <div class="actions">
+    <button id="btn-prever" type="button" onclick="prever()">Calcular risco de churn</button>
+    <span class="hint">A resposta vem do modelo MLP carregado no servidor.</span>
+  </div>
+
+  <div id="resultado">
+    <div class="res-top">
+      <span id="prob">—</span>
+      <span id="band">—</span>
+    </div>
+    <div class="bar"><div id="bar-fill" class="bar-fill"></div><div id="thr" class="thr"></div></div>
+    <div class="hint">0% — probabilidade de churn — 100% &nbsp;|&nbsp; traço vertical = threshold de decisão</div>
+    <div id="veredito"></div>
+    <div id="detalhe"></div>
+  </div>
+  <div id="erro"></div>
+
+  <footer>
+    Outras formas de acessar: <a href="/docs">Swagger</a> · <a href="/redoc">ReDoc</a> ·
+    <a href="/model-info">/model-info</a> · <a href="/health">/health</a>
+  </footer>
+</div>
+
+<script>
+const YN = ["Yes","No"];
+const NETOPT = ["Yes","No","No internet service"];
+const CAMPOS = [
+  ["tenure","Meses como cliente","number",{min:0,step:1}],
+  ["monthly_charges","Mensalidade (US$)","number",{min:0,step:0.01}],
+  ["total_charges","Total já pago (US$)","number",{min:0,step:0.01}],
+  ["gender","Gênero","select",["Male","Female"]],
+  ["senior_citizen","Idoso (65+)","select",[["0","Não"],["1","Sim"]]],
+  ["partner","Tem parceiro(a)","select",YN],
+  ["dependents","Tem dependentes","select",YN],
+  ["phone_service","Telefone","select",YN],
+  ["multiple_lines","Múltiplas linhas","select",["Yes","No","No phone service"]],
+  ["internet_service","Internet","select",["DSL","Fiber optic","No"]],
+  ["online_security","Segurança online","select",NETOPT],
+  ["online_backup","Backup online","select",NETOPT],
+  ["device_protection","Proteção de aparelho","select",NETOPT],
+  ["tech_support","Suporte técnico","select",NETOPT],
+  ["streaming_tv","Streaming de TV","select",NETOPT],
+  ["streaming_movies","Streaming de filmes","select",NETOPT],
+  ["contract","Contrato","select",["Month-to-month","One year","Two year"]],
+  ["paperless_billing","Fatura digital","select",YN],
+  ["payment_method","Pagamento","select",["Electronic check","Mailed check","Bank transfer (automatic)","Credit card (automatic)"]],
+];
+
+const PRESETS = {
+  alto:  {tenure:2, monthly_charges:85, total_charges:170, gender:"Male", senior_citizen:"1",
+          partner:"No", dependents:"No", phone_service:"Yes", multiple_lines:"No",
+          internet_service:"Fiber optic", online_security:"No", online_backup:"No",
+          device_protection:"No", tech_support:"No", streaming_tv:"Yes", streaming_movies:"Yes",
+          contract:"Month-to-month", paperless_billing:"Yes", payment_method:"Electronic check"},
+  baixo: {tenure:65, monthly_charges:20, total_charges:1300, gender:"Female", senior_citizen:"0",
+          partner:"Yes", dependents:"Yes", phone_service:"Yes", multiple_lines:"No",
+          internet_service:"DSL", online_security:"Yes", online_backup:"Yes",
+          device_protection:"Yes", tech_support:"Yes", streaming_tv:"No", streaming_movies:"No",
+          contract:"Two year", paperless_billing:"No", payment_method:"Mailed check"},
+};
+
+const form = document.getElementById("form");
+for (const [nome, rotulo, tipo, extra] of CAMPOS) {
+  const div = document.createElement("div");
+  div.className = "field";
+  const lab = document.createElement("label");
+  lab.textContent = rotulo;
+  lab.htmlFor = nome;
+  div.appendChild(lab);
+  let el;
+  if (tipo === "select") {
+    el = document.createElement("select");
+    for (const opt of extra) {
+      const [val, txt] = Array.isArray(opt) ? opt : [opt, opt];
+      const o = document.createElement("option");
+      o.value = val; o.textContent = txt;
+      el.appendChild(o);
+    }
+  } else {
+    el = document.createElement("input");
+    el.type = "number";
+    Object.assign(el, extra);
+  }
+  el.id = nome;
+  div.appendChild(el);
+  form.appendChild(div);
+}
+
+function aplicarPreset(qual){
+  const p = PRESETS[qual];
+  for (const k in p) document.getElementById(k).value = p[k];
+}
+aplicarPreset("alto");
+
+function montarPayload(){
+  const body = {};
+  for (const [nome,, tipo] of CAMPOS) {
+    const v = document.getElementById(nome).value;
+    if (tipo === "number") body[nome] = nome === "tenure" ? parseInt(v||0,10) : parseFloat(v||0);
+    else if (nome === "senior_citizen") body[nome] = parseInt(v,10);
+    else body[nome] = v;
+  }
+  return body;
+}
+
+async function prever(){
+  const btn = document.getElementById("btn-prever");
+  const erro = document.getElementById("erro");
+  btn.disabled = true; erro.style.display = "none";
+  try {
+    const r = await fetch("/predict", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(montarPayload()),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error("HTTP " + r.status + "\n" + t);
+    }
+    mostrar(await r.json());
+  } catch (e) {
+    erro.textContent = "Falha ao chamar a API: " + e.message;
+    erro.style.display = "block";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function mostrar(res){
+  const cores = {Alto:"var(--alto)", "Médio":"var(--medio)", Baixo:"var(--baixo)"};
+  const pct = (res.churn_probability * 100);
+  document.getElementById("resultado").style.display = "block";
+  document.getElementById("prob").textContent = pct.toFixed(1) + "%";
+  const band = document.getElementById("band");
+  band.textContent = "risco " + res.risk_band;
+  band.style.background = cores[res.risk_band] || "var(--muted)";
+  const fill = document.getElementById("bar-fill");
+  fill.style.width = pct + "%";
+  fill.style.background = cores[res.risk_band] || "var(--accent)";
+  document.getElementById("thr").style.left = (res.threshold * 100) + "%";
+  document.getElementById("veredito").textContent = res.churn_prediction === 1
+    ? "Predição: CHURN — o modelo recomenda ação de retenção."
+    : "Predição: permanece — sem ação necessária.";
+  document.getElementById("detalhe").textContent =
+    "churn_prediction = " + res.churn_prediction + " (threshold " + res.threshold + ")";
+}
+</script>
+</body>
+</html>

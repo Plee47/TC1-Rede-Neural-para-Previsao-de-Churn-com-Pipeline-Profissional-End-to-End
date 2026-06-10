@@ -126,6 +126,9 @@ dmypy.json
 .idea/
 *.iml
 
+# Visual Studio
+.vs/
+
 # Vim / Emacs
 *.swp
 *.swo
@@ -179,3 +182,13 @@ secrets/
 credentials/
 kaggle.json
 service_account*.json
+
+# =============================================================================
+# Exceção: artefatos do modelo versionados para deploy reproduzível
+# São arquivos pequenos (~84 KB) gerados por `python -m src.models.export_artifacts`.
+# Permitem que o build do Docker (local ou cloud-from-git) funcione sem registry.
+# Para um fluxo MLOps estrito, remova estas exceções e use um artifact store.
+# =============================================================================
+!models/artifacts/preprocessor.joblib
+!models/artifacts/mlp_weights.pt
+!models/artifacts/model_config.json

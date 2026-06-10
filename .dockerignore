@@ -1,0 +1,29 @@
+# Mantém o contexto de build pequeno e a imagem limpa.
+.git
+.gitignore
+.venv
+venv
+env
+ENV
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+.coverage.*
+
+# Experimentação / dados / notebooks não vão para a imagem da API
+notebooks
+mlruns
+data
+docs
+tests
+*.ipynb
+
+# Ambiente local
+.env
+.env.*
+!.env.example

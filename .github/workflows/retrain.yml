@@ -1,0 +1,89 @@
+# Pipeline de retreino do modelo de churn.
+#
+# Fluxo: baixa dados → treina → portão de qualidade (SLOs do ML Canvas)
+#        → smoke test de integração → abre PR com os artefatos novos.
+# O deploy acontece DEPOIS do merge do PR (o Render observa a branch principal).
+# Modelo novo nunca entra em produção sem passar pelos gates + revisão humana.
+#
+# Configuração única no repositório (Settings → Actions → General):
+#   marcar "Allow GitHub Actions to create and approve pull requests".
+# Observação: workflows agendados (cron) só rodam na branch padrão.
+
+name: retreinar-modelo
+
+on:
+  workflow_dispatch:
+    inputs:
+      motivo:
+        description: "Motivo do retreino"
+        required: false
+        default: "disparo manual"
+  schedule:
+    # Dia 1 de jan/abr/jul/out, 06:00 UTC — aproxima a política de 90 dias do canvas.
+    - cron: "0 6 1 */3 *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  # Fonte pública do Telco Customer Churn (IBM/Kaggle). Num cenário real,
+  # este passo consultaria o data warehouse / feature store com dados frescos.
+  DATA_URL: https://raw.githubusercontent.com/treselle-systems/customer_churn_analysis/master/WA_Fn-UseC_-Telco-Customer-Churn.csv
+
+jobs:
+  retreinar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências (torch CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pytest pytest-cov httpx
+
+      - name: Baixar e validar dataset
+        run: |
+          mkdir -p data/raw
+          curl -fsSL -o data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv "$DATA_URL"
+          linhas=$(wc -l < data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv)
+          echo "Dataset baixado: $linhas linhas"
+          test "$linhas" -ge 7000
+
+      - name: Treinar e exportar artefatos
+        run: python -m src.models.export_artifacts
+
+      - name: Portão de qualidade (SLOs do ML Canvas)
+        run: python scripts/quality_gate.py
+
+      - name: Smoke test — API carrega e discrimina com artefatos novos
+        run: python -m pytest -m integration --no-cov -q
+
+      - name: Preparar descrição do PR
+        run: |
+          {
+            echo 'PR_BODY<<EOF'
+            python scripts/quality_gate.py --pr-body
+            echo EOF
+          } >> "$GITHUB_ENV"
+
+      - name: Abrir PR com os artefatos novos
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: retrain/modelo-atualizado
+          delete-branch: true
+          commit-message: "chore(model): retreino automático dos artefatos"
+          title: "Retreino do modelo de churn"
+          body: ${{ env.PR_BODY }}
+          add-paths: |
+            models/artifacts/mlp_weights.pt
+            models/artifacts/preprocessor.joblib
+            models/artifacts/model_config.json

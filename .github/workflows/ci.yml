@@ -1,0 +1,35 @@
+# CI — roda a suíte de testes em todo push/PR.
+# Como os artefatos do modelo são versionados, os testes de integração
+# também rodam aqui, validando que o modelo commitado carrega e responde.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências (torch CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pytest pytest-cov httpx
+
+      - name: Testes (unitários + integração)
+        run: python -m pytest -q

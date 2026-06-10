@@ -135,3 +135,48 @@ def test_model_info_when_loaded(client):
     assert body["model_loaded"] is True
     assert body["input_dim"] == 46
     assert body["threshold"] == 0.5
+
+
+@pytest.mark.unit
+def test_predict_includes_risk_band(client):
+    """POST /predict deve incluir a faixa de risco (Alto/Médio/Baixo)."""
+    body = client.post("/predict", json=VALID_CUSTOMER).json()
+    assert "risk_band" in body
+    assert body["risk_band"] in ("Alto", "Médio", "Baixo")
+
+
+@pytest.mark.unit
+def test_predict_batch_returns_200(client):
+    """POST /predict/batch com lista válida deve retornar HTTP 200."""
+    payload = {"customers": [VALID_CUSTOMER, VALID_CUSTOMER, VALID_CUSTOMER]}
+    response = client.post("/predict/batch", json=payload)
+    assert response.status_code == 200
+
+
+@pytest.mark.unit
+def test_predict_batch_response_schema(client):
+    """A resposta em lote deve trazer count e uma predição por cliente."""
+    payload = {"customers": [VALID_CUSTOMER, VALID_CUSTOMER]}
+    body = client.post("/predict/batch", json=payload).json()
+    assert body["count"] == 2
+    assert len(body["predictions"]) == 2
+    for pred in body["predictions"]:
+        assert "churn_probability" in pred
+        assert "risk_band" in pred
+        assert pred["churn_prediction"] in (0, 1)
+
+
+@pytest.mark.unit
+def test_predict_batch_empty_returns_422(client):
+    """Lista de clientes vazia deve ser rejeitada com HTTP 422."""
+    response = client.post("/predict/batch", json={"customers": []})
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_demo_page_returns_html(client):
+    """GET / deve servir a página de demonstração em HTML."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Churn" in response.text

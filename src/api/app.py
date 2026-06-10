@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 import joblib
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -81,7 +82,9 @@ async def lifespan(app: FastAPI):
         )
     except FileNotFoundError as exc:
         logger.warning(
-            "Artefatos não encontrados: %s — execute o notebook 03_mlp.ipynb primeiro.", exc
+            "Artefatos não encontrados: %s — gere com "
+            "`python -m src.models.export_artifacts` (ou rode notebooks/03_mlp.ipynb).",
+            exc,
         )
     yield
 
@@ -130,7 +133,19 @@ class CustomerFeatures(BaseModel):
 class PredictionResponse(BaseModel):
     churn_probability: float = Field(..., description="Probabilidade de churn [0, 1]")
     churn_prediction: int = Field(..., description="Predição binária (0=não churn, 1=churn)")
+    risk_band: str = Field(..., description="Faixa de risco: Alto | Médio | Baixo")
     threshold: float = Field(..., description="Limiar de decisão utilizado")
+
+
+class BatchPredictRequest(BaseModel):
+    customers: list[CustomerFeatures] = Field(
+        ..., min_length=1, description="Lista de clientes para scoring em lote"
+    )
+
+
+class BatchPredictionResponse(BaseModel):
+    count: int = Field(..., description="Número de clientes avaliados")
+    predictions: list[PredictionResponse]
 
 
 class ModelInfoResponse(BaseModel):
@@ -139,6 +154,57 @@ class ModelInfoResponse(BaseModel):
     hidden_dims: list | None = None
     threshold: float | None = None
     version: str
+
+
+def _risk_band(proba: float) -> str:
+    """Classifica a probabilidade em faixa de risco para priorização (CRM)."""
+    if proba >= 0.70:
+        return "Alto"
+    if proba >= 0.30:
+        return "Médio"
+    return "Baixo"
+
+
+def _ensure_model_loaded() -> None:
+    """Aborta com 503 se os artefatos do modelo não estiverem carregados."""
+    if not app.state.model_loaded:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Modelo não carregado. Gere os artefatos com "
+                "`python -m src.models.export_artifacts` (ou rode notebooks/03_mlp.ipynb)."
+            ),
+        )
+
+
+def _predict_frame(df_input: pd.DataFrame) -> list[PredictionResponse]:
+    """Aplica preprocessador + MLP a um DataFrame e devolve uma resposta por linha."""
+    x_pp = app.state.preprocessor.transform(df_input)
+    device = torch.device("cpu")
+    probas = predict_proba(app.state.model, x_pp, device)
+    threshold = app.state.threshold
+    return [
+        PredictionResponse(
+            churn_probability=round(float(p), 6),
+            churn_prediction=int(p >= threshold),
+            risk_band=_risk_band(float(p)),
+            threshold=threshold,
+        )
+        for p in probas
+    ]
+
+
+_DEMO_HTML_PATH = Path(__file__).parent / "static" / "demo.html"
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def demo_page() -> HTMLResponse:
+    """Página de demonstração que consome a própria API."""
+    if not _DEMO_HTML_PATH.exists():
+        return HTMLResponse(
+            "<h1>Churn Prediction API</h1><p>Documentação em <a href='/docs'>/docs</a>.</p>"
+        )
+    return HTMLResponse(_DEMO_HTML_PATH.read_text(encoding="utf-8"))
 
 
 @app.get("/health", tags=["infra"])
@@ -166,28 +232,24 @@ def model_info() -> ModelInfoResponse:
 @app.post("/predict", response_model=PredictionResponse, tags=["inference"])
 def predict(customer: CustomerFeatures) -> PredictionResponse:
     """Retorna a probabilidade de churn para um cliente."""
-    if not app.state.model_loaded:
-        raise HTTPException(
-            status_code=503,
-            detail="Modelo não carregado. Execute o notebook 03_mlp.ipynb primeiro.",
-        )
-
+    _ensure_model_loaded()
     logger.info(
         "Predição solicitada | tenure=%d | contract=%s",
         customer.tenure,
         customer.contract,
     )
-
     row = {_FIELD_TO_COL[field]: value for field, value in customer.model_dump().items()}
-    df_input = pd.DataFrame([row])
+    return _predict_frame(pd.DataFrame([row]))[0]
 
-    x_pp = app.state.preprocessor.transform(df_input)
-    device = torch.device("cpu")
-    proba = float(predict_proba(app.state.model, x_pp, device)[0])
 
-    threshold = app.state.threshold
-    return PredictionResponse(
-        churn_probability=round(proba, 6),
-        churn_prediction=int(proba >= threshold),
-        threshold=threshold,
-    )
+@app.post("/predict/batch", response_model=BatchPredictionResponse, tags=["inference"])
+def predict_batch(request: BatchPredictRequest) -> BatchPredictionResponse:
+    """Scoring de churn para uma lista de clientes — caso de uso do time de CRM."""
+    _ensure_model_loaded()
+    logger.info("Predição em lote solicitada | n=%d", len(request.customers))
+    rows = [
+        {_FIELD_TO_COL[field]: value for field, value in cust.model_dump().items()}
+        for cust in request.customers
+    ]
+    preds = _predict_frame(pd.DataFrame(rows))
+    return BatchPredictionResponse(count=len(preds), predictions=preds)
