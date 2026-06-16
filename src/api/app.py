@@ -138,7 +138,8 @@ class ModelInfoResponse(BaseModel):
     input_dim: int | None = None
     hidden_dims: list | None = None
     threshold: float | None = None
-    version: str
+    model_version: str | None = Field(None, description="Versão do modelo treinado (artefato)")
+    version: str = Field(..., description="Versão da API")
 
 
 @app.get("/health", tags=["infra"])
@@ -159,6 +160,7 @@ def model_info() -> ModelInfoResponse:
         input_dim=cfg.get("input_dim"),
         hidden_dims=cfg.get("hidden_dims"),
         threshold=app.state.threshold,
+        model_version=str(cfg.get("model_version", "1.0.0")),
         version=app.version,
     )
 

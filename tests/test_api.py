@@ -56,6 +56,7 @@ def client():
             "hidden_dims": [128, 64, 32],
             "dropout": 0.3,
             "threshold": 0.5,
+            "model_version": "1.0.0",
         }
         c.app.state.model_loaded = True
         yield c
@@ -135,3 +136,4 @@ def test_model_info_when_loaded(client):
     assert body["model_loaded"] is True
     assert body["input_dim"] == 46
     assert body["threshold"] == 0.5
+    assert body["model_version"] == "1.0.0"

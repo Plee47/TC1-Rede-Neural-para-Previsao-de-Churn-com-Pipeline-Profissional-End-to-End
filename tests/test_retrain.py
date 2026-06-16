@@ -10,7 +10,27 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.pipeline.retrain import _load_current_config, run_retrain
+from src.pipeline.retrain import _bump_version, _load_current_config, run_retrain
+
+# ---------------------------------------------------------------------------
+# _bump_version
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        ("1.0.0", "1.0.1"),
+        ("2.5.9", "2.5.10"),
+        ("invalido", "1.0.0"),
+        (None, "1.0.0"),
+    ],
+)
+def test_bump_version(current, expected):
+    """Incrementa o patch; faz fallback seguro para valores inválidos."""
+    assert _bump_version(current) == expected
+
 
 # ---------------------------------------------------------------------------
 # Fixtures compartilhadas

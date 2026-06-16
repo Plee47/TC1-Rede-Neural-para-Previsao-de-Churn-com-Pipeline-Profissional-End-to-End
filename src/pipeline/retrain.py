@@ -61,6 +61,15 @@ def _load_current_config(artifacts_path: Path) -> dict:
         return json.load(f)
 
 
+def _bump_version(version: str) -> str:
+    """Incrementa o patch de um SemVer (X.Y.Z -> X.Y.Z+1); fallback para '1.0.0'."""
+    try:
+        major, minor, patch = (int(p) for p in str(version).split("."))
+        return f"{major}.{minor}.{patch + 1}"
+    except (ValueError, TypeError):
+        return "1.0.0"
+
+
 def _save_artifacts(
     artifacts_path: Path,
     model: ChurnMLP,
@@ -151,6 +160,7 @@ def run_retrain(
             **current_config,
             **{k: float(v) for k, v in new_metrics.items()},
             "input_dim": input_dim,
+            "model_version": _bump_version(current_config.get("model_version", "1.0.0")),
         }
         _save_artifacts(artifacts_path, model, preprocessor, new_config)
         logger.info("Modelo promovido (AUC %.4f > %.4f)", new_auc, current_auc)
