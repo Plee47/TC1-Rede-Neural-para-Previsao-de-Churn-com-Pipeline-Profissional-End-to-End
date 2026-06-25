@@ -4,7 +4,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.12-orange)
 ![MLflow](https://img.shields.io/badge/MLflow-3.13-green)
 ![scikit--learn](https://img.shields.io/badge/scikit--learn-1.9-blue)
-![Tests](https://img.shields.io/badge/testes-29%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/testes-41%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -299,7 +299,7 @@ curl -X POST http://localhost:8000/predict \
 {
   "churn_probability": 0.847312,
   "churn_prediction": 1,
-  "threshold": 0.35
+  "threshold": 0.05
 }
 ```
 
@@ -446,7 +446,7 @@ make test
 make test-all
 ```
 
-**Suite atual: 33 testes | Cobertura: ≥ 85%**
+**Suite atual: 41 testes | Cobertura: ≥ 85%**
 
 | Arquivo | Testes | O que cobre |
 |---|---|---|
@@ -537,7 +537,7 @@ make docker-up
 | Dockerfile (API multi-stage) | ✅ Concluído |
 | docker-compose (API + MLflow) | ✅ Concluído |
 | GitHub Actions CI (lint + test + build) | ✅ Concluído |
-| Re-treino automatizado mensal | 🔜 A implementar |
+| Re-treino automatizado mensal | ✅ Concluído |
 | Monitoramento de data drift | 🔜 A implementar |
 | Dashboard de métricas em produção | 🔜 A implementar |
 | Deploy em cloud (AWS/GCP/Azure) | 🔜 A implementar |
