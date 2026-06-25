@@ -179,3 +179,12 @@ secrets/
 credentials/
 kaggle.json
 service_account*.json
+
+# =============================================================================
+# Exceções — arquivos de projeto que devem ser versionados
+# =============================================================================
+!data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv
+!data/processed/telco_treated.csv
+!models/artifacts/mlp_weights.pt
+!models/artifacts/model_config.json
+!models/artifacts/preprocessor.joblib
