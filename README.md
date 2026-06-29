@@ -30,14 +30,62 @@ Identificar clientes propensos ao cancelamento (churn) antes que ele ocorra, per
 - Recall ≥ 0.70
 - Latência de API ≤ 500 ms (p95)
 
+
+---
+
+## Arquitetura da Solução
+
+```text
+                 Dataset IBM Telco
+                        │
+                        ▼
+             EDA + Pré-processamento
+                        │
+                        ▼
+      Treinamento (Scikit-Learn + PyTorch)
+                        │
+                        ▼
+                    MLflow
+                        │
+                        ▼
+          Exportação dos Artefatos
+                        │
+                        ▼
+                 FastAPI REST API
+                        │
+                        ▼
+                    Docker
+                        │
+                        ▼
+          Render (Ambiente de Demonstração)
+                        │
+        ┌───────────────┼──────────────┐
+        ▼               ▼              ▼
+    /predict      /model-info      /health
+```
+
+### Arquitetura de Deploy
+
+A solução utiliza arquitetura de inferência **Real-Time**, pois as predições são realizadas sob demanda por meio de uma API REST construída com FastAPI. O modelo é carregado na inicialização da aplicação e permanece em memória para reduzir a latência das inferências.
+
+**Ambiente atual**
+- Docker
+- FastAPI
+- Render
+
+**Próxima etapa**
+- Amazon ECR
+- Amazon ECS
+- GitHub Actions
+
 ---
 
 ## Equipe e Responsabilidades
 
 | Membro | Responsabilidade | Etapa |
 |---|---|---|
-| Tathiana Araujo Rodnarchuki | — | — |
-| Giselly Kathellyn Domingos da Silva | — | — |
+| Tathiana Araujo Rodnarchuki | Etapa 4 | Etapa 4 |
+| Giselly Kathellyn Domingos da Silva | Etapa 4 | Etapa 4 |
 | Pedro Henrique Ostroski | Etapa 1 | Etapa 1 |
 | Alisson Henrique Lepesqueur Borges Fabiano | Etapa 3 | Etapa 3 |
 | Rafael Fernando Gimenes | Etapa 2 | Etapa 2 |
@@ -256,6 +304,32 @@ uvicorn src.api.app:app --reload
 ```
 
 Acesse: **http://localhost:8000/docs** (Swagger UI automático)
+
+---
+
+## API em Produção
+
+A API está publicada para demonstração no Render.
+
+- Swagger: https://tc1-rede-neural-para-previsao-de-churn.onrender.com/docs
+- Health: https://tc1-rede-neural-para-previsao-de-churn.onrender.com/health
+
+Resposta do endpoint `/health`:
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0"
+}
+```
+
+### Limitações
+
+- Hospedagem no plano gratuito do Render.
+- O serviço pode entrar em suspensão após inatividade (cold start).
+- Não possui alta disponibilidade nem auto scaling.
+- Ambiente destinado para demonstração e portfólio.
+
 
 **Endpoints disponíveis:**
 
@@ -477,6 +551,35 @@ Configuração completa em [pyproject.toml](pyproject.toml).
 
 ---
 
+
+---
+
+## Monitoramento
+
+O projeto possui um plano de monitoramento completo documentado em `docs/model_card.md`, contemplando:
+
+- métricas operacionais (latência, disponibilidade e taxa de erro);
+- métricas de desempenho do modelo (AUC-ROC, Recall, PR-AUC e F1-Score);
+- monitoramento de Data Drift e Model Drift;
+- níveis de severidade (P0–P3);
+- alertas operacionais;
+- playbooks de resposta para degradação de performance, drift e indisponibilidade da API;
+- fluxo de retreinamento automático do modelo.
+
+O plano segue as recomendações apresentadas na disciplina de Ciclo de Vida de Modelos e MLOps.
+
+## Documentação
+
+| Documento | Descrição |
+|---|---|
+| [docs/ml_canvas.md](docs/ml_canvas.md) | ML Canvas: formulação do problema, SLOs, análise de custo, stakeholders |
+| [docs/model_card.md](docs/model_card.md) | Model Card: arquitetura, performance, limitações, plano de monitoramento, ética |
+| [docs/comparacao_modelos.png](docs/comparacao_modelos.png) | Gráfico comparativo de modelos (gerado automaticamente) |
+| [docs/analise_custo.png](docs/analise_custo.png) | Curva de custo vs. threshold (gerado automaticamente) |
+
+
+---
+
 ## Documentação
 
 | Documento | Descrição |
@@ -507,7 +610,7 @@ Configuração completa em [pyproject.toml](pyproject.toml).
 
 ### Status atual
 
-A API de inferência está **totalmente funcional** localmente. Execute o pipeline completo (notebooks 01→03) para gerar os artefatos e então suba a API:
+A API está disponível para demonstração no Render e também pode ser executada localmente. Para execução local, gere os artefatos (notebooks 01→03) e inicie a API:
 
 ```bash
 # via Make
@@ -540,7 +643,9 @@ make docker-up
 | Re-treino automatizado mensal | ✅ Concluído |
 | Monitoramento de data drift | 🔜 A implementar |
 | Dashboard de métricas em produção | 🔜 A implementar |
-| Deploy em cloud (AWS/GCP/Azure) | 🔜 A implementar |
+| Deploy em cloud (Render) | ✅ Concluído |
+| Deploy na AWS (Amazon ECR + Amazon ECS) | 🔜 Próxima etapa |
+
 
 ---
 
