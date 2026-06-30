@@ -57,7 +57,19 @@ Identificar clientes propensos ao cancelamento (churn) antes que ele ocorra, per
                     Docker
                         │
                         ▼
-          Render (Ambiente de Demonstração)
+                    Amazon ECR
+                        │
+                        ▼
+                Amazon ECS (Express)
+                        │
+                        ▼
+          Application Load Balancer
+                        │
+        ┌───────────────┼──────────────┐
+        ▼               ▼              ▼
+    /predict      /model-info      /health
+
+*Deploy alternativo para demonstração: Render*
                         │
         ┌───────────────┼──────────────┐
         ▼               ▼              ▼
@@ -68,15 +80,31 @@ Identificar clientes propensos ao cancelamento (churn) antes que ele ocorra, per
 
 A solução utiliza arquitetura de inferência **Real-Time**, pois as predições são realizadas sob demanda por meio de uma API REST construída com FastAPI. O modelo é carregado na inicialização da aplicação e permanece em memória para reduzir a latência das inferências.
 
-**Ambiente atual**
-- Docker
-- FastAPI
+
+## Deploy na AWS
+
+Como etapa final do projeto, a API foi implantada na AWS utilizando uma arquitetura baseada em containers.
+
+### Serviços utilizados
+
+| Serviço | Finalidade |
+|---------|------------|
+| Amazon ECR | Armazenamento da imagem Docker |
+| Amazon ECS Express | Execução e orquestração do container |
+| Application Load Balancer | Exposição pública da API e distribuição do tráfego |
+| FastAPI | Serviço de inferência em tempo real |
+
+### Fluxo de Deploy
+
+Docker → Amazon ECR → Amazon ECS Express → Application Load Balancer → API
+
+Essa arquitetura permite executar o modelo em tempo real, mantendo baixa latência e facilitando futuras evoluções, como CI/CD e auto scaling.
+
+**Deploy de demonstração**
 - Render
 
-**Próxima etapa**
-- Amazon ECR
-- Amazon ECS
-- GitHub Actions
+**Próxima evolução**
+- GitHub Actions para CI/CD
 
 ---
 
@@ -309,10 +337,29 @@ Acesse: **http://localhost:8000/docs** (Swagger UI automático)
 
 ## API em Produção
 
-A API está publicada para demonstração no Render.
+A aplicação está disponível em dois ambientes de execução:
 
-- Swagger: https://tc1-rede-neural-para-previsao-de-churn.onrender.com/docs
-- Health: https://tc1-rede-neural-para-previsao-de-churn.onrender.com/health
+### AWS (Produção)
+
+- Base URL:
+  https://ch-c126415f62454516a6cdeae50406def4.ecs.us-east-1.on.aws
+
+- Swagger:
+  https://ch-c126415f62454516a6cdeae50406def4.ecs.us-east-1.on.aws/docs
+
+- Health Check:
+  https://ch-c126415f62454516a6cdeae50406def4.ecs.us-east-1.on.aws/health
+
+### Render (Demonstração)
+
+- Base URL:
+  https://tc1-rede-neural-para-previsao-de-churn.onrender.com
+
+- Swagger:
+  https://tc1-rede-neural-para-previsao-de-churn.onrender.com/docs
+
+- Health Check:
+  https://tc1-rede-neural-para-previsao-de-churn.onrender.com/health
 
 Resposta do endpoint `/health`:
 
@@ -644,7 +691,7 @@ make docker-up
 | Monitoramento de data drift | 🔜 A implementar |
 | Dashboard de métricas em produção | 🔜 A implementar |
 | Deploy em cloud (Render) | ✅ Concluído |
-| Deploy na AWS (Amazon ECR + Amazon ECS) | 🔜 Próxima etapa |
+| Deploy na AWS (Amazon ECR + Amazon ECS) | ✅ Concluído |
 
 
 ---
