@@ -2,6 +2,7 @@
 src/models/mlp.py
 Arquitetura MLP em PyTorch para classificação binária de churn.
 """
+
 from __future__ import annotations
 
 import torch

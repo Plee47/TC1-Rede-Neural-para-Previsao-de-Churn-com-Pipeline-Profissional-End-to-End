@@ -114,8 +114,17 @@ def test_fit_reduces_loss():
 
     auc_before = roc_auc_score(y_val, predict_proba(model, x_val, device))
 
-    fit(model, x_train, y_train, x_val, y_val,
-        epochs=30, batch_size=32, patience=30, device=device)
+    fit(
+        model,
+        x_train,
+        y_train,
+        x_val,
+        y_val,
+        epochs=30,
+        batch_size=32,
+        patience=30,
+        device=device,
+    )
 
     auc_after = roc_auc_score(y_val, predict_proba(model, x_val, device))
 

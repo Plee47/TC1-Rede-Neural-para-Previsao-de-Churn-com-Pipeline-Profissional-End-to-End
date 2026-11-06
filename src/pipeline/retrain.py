@@ -160,7 +160,9 @@ def run_retrain(
             **current_config,
             **{k: float(v) for k, v in new_metrics.items()},
             "input_dim": input_dim,
-            "model_version": _bump_version(current_config.get("model_version", "1.0.0")),
+            "model_version": _bump_version(
+                current_config.get("model_version", "1.0.0")
+            ),
         }
         _save_artifacts(artifacts_path, model, preprocessor, new_config)
         logger.info("Modelo promovido (AUC %.4f > %.4f)", new_auc, current_auc)

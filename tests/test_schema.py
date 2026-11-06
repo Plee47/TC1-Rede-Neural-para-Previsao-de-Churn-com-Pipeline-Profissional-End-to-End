@@ -6,11 +6,28 @@ Schema tests — valida contratos de dados (colunas, tipos, invariantes).
 import pytest
 
 EXPECTED_COLUMNS = {
-    "customerID", "gender", "SeniorCitizen", "Partner", "Dependents",
-    "tenure", "PhoneService", "MultipleLines", "InternetService",
-    "OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport",
-    "StreamingTV", "StreamingMovies", "Contract", "PaperlessBilling",
-    "PaymentMethod", "MonthlyCharges", "TotalCharges", "Churn", "Churn_bin",
+    "customerID",
+    "gender",
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "tenure",
+    "PhoneService",
+    "MultipleLines",
+    "InternetService",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "Contract",
+    "PaperlessBilling",
+    "PaymentMethod",
+    "MonthlyCharges",
+    "TotalCharges",
+    "Churn",
+    "Churn_bin",
 }
 
 
@@ -37,6 +54,7 @@ def test_no_nulls_after_load(loaded_df):
 def test_total_charges_is_float(loaded_df):
     """TotalCharges deve ser numérico (float64) após conversão."""
     import pandas as pd
+
     assert pd.api.types.is_float_dtype(loaded_df["TotalCharges"])
 
 

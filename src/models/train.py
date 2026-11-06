@@ -2,6 +2,7 @@
 src/models/train.py
 Loop de treinamento com early stopping e mini-batching para o ChurnMLP.
 """
+
 from __future__ import annotations
 
 import copy
