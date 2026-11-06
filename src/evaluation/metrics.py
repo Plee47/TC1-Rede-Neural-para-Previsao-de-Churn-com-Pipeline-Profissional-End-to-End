@@ -36,11 +36,11 @@ def compute_metrics(
     y_pred = (y_prob >= threshold).astype(int)
 
     metrics = {
-        "auc_roc":   round(roc_auc_score(y_true, y_prob), 4),
-        "pr_auc":    round(average_precision_score(y_true, y_prob), 4),
-        "f1":        round(f1_score(y_true, y_pred), 4),
+        "auc_roc": round(roc_auc_score(y_true, y_prob), 4),
+        "pr_auc": round(average_precision_score(y_true, y_prob), 4),
+        "f1": round(f1_score(y_true, y_pred), 4),
         "precision": round(precision_score(y_true, y_pred, zero_division=0), 4),
-        "recall":    round(recall_score(y_true, y_pred), 4),
+        "recall": round(recall_score(y_true, y_pred), 4),
     }
 
     logger.info(

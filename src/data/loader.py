@@ -38,7 +38,9 @@ def load_raw(path: str) -> pd.DataFrame:
     if n_nan > 0:
         mediana = df["TotalCharges"].median()
         df["TotalCharges"] = df["TotalCharges"].fillna(mediana)
-        logger.info("TotalCharges: %d NaN preenchidos com mediana (%.2f)", n_nan, mediana)
+        logger.info(
+            "TotalCharges: %d NaN preenchidos com mediana (%.2f)", n_nan, mediana
+        )
 
     # Binarizar target
     df["Churn_bin"] = (df[TARGET_COL] == "Yes").astype(int)

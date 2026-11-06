@@ -81,7 +81,8 @@ async def lifespan(app: FastAPI):
         )
     except FileNotFoundError as exc:
         logger.warning(
-            "Artefatos não encontrados: %s — execute o notebook 03_mlp.ipynb primeiro.", exc
+            "Artefatos não encontrados: %s — execute o notebook 03_mlp.ipynb primeiro.",
+            exc,
         )
     yield
 
@@ -98,10 +99,14 @@ class CustomerFeatures(BaseModel):
     # Numérico
     tenure: int = Field(..., ge=0, description="Meses como cliente")
     monthly_charges: float = Field(..., ge=0, description="Cobrança mensal (USD)")
-    total_charges: float = Field(..., ge=0, description="Cobrança total acumulada (USD)")
+    total_charges: float = Field(
+        ..., ge=0, description="Cobrança total acumulada (USD)"
+    )
     # Demográfico
     gender: str = Field(..., description="Male | Female")
-    senior_citizen: int = Field(..., ge=0, le=1, description="Cliente idoso (0=Não, 1=Sim)")
+    senior_citizen: int = Field(
+        ..., ge=0, le=1, description="Cliente idoso (0=Não, 1=Sim)"
+    )
     partner: str = Field(..., description="Yes | No")
     dependents: str = Field(..., description="Yes | No")
     # Serviços de telefonia
@@ -129,7 +134,9 @@ class CustomerFeatures(BaseModel):
 
 class PredictionResponse(BaseModel):
     churn_probability: float = Field(..., description="Probabilidade de churn [0, 1]")
-    churn_prediction: int = Field(..., description="Predição binária (0=não churn, 1=churn)")
+    churn_prediction: int = Field(
+        ..., description="Predição binária (0=não churn, 1=churn)"
+    )
     threshold: float = Field(..., description="Limiar de decisão utilizado")
 
 
@@ -138,7 +145,9 @@ class ModelInfoResponse(BaseModel):
     input_dim: int | None = None
     hidden_dims: list | None = None
     threshold: float | None = None
-    model_version: str | None = Field(None, description="Versão do modelo treinado (artefato)")
+    model_version: str | None = Field(
+        None, description="Versão do modelo treinado (artefato)"
+    )
     version: str = Field(..., description="Versão da API")
 
 
@@ -180,7 +189,9 @@ def predict(customer: CustomerFeatures) -> PredictionResponse:
         customer.contract,
     )
 
-    row = {_FIELD_TO_COL[field]: value for field, value in customer.model_dump().items()}
+    row = {
+        _FIELD_TO_COL[field]: value for field, value in customer.model_dump().items()
+    }
     df_input = pd.DataFrame([row])
 
     x_pp = app.state.preprocessor.transform(df_input)

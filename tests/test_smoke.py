@@ -22,6 +22,7 @@ def test_metrics_imports():
 def test_api_imports():
     """src.api.app deve ser importável e expor o objeto FastAPI."""
     from src.api.app import app
+
     assert app is not None
 
 

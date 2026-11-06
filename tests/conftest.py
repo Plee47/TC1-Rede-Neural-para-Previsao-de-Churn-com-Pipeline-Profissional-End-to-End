@@ -76,6 +76,7 @@ def raw_csv_path(tmp_path) -> str:
 def loaded_df(raw_csv_path) -> pd.DataFrame:
     """DataFrame já processado por load_raw."""
     from src.data.loader import load_raw
+
     return load_raw(raw_csv_path)
 
 
